@@ -4,10 +4,12 @@
 #include <time.h>
 #include <math.h>
 #include <SDL2/SDL_ttf.h>
+#include <SDL2/SDL_mixer.h>
 const int WIDTH = 600;
 const int HEIGHT = 400;
 const int BALL_SIZE = 10;
 int roundno = 1;
+TTF_Font *gFont=NULL;
 void call(void);
 unsigned int count[20] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 typedef struct Ball
@@ -44,8 +46,8 @@ float PLAYER_MOVE_SPEED = 150.0f;
 bool served;
 SDL_Window *window = NULL;
 SDL_Renderer *renderer = NULL;
-
-TTF_Font *gFont = NULL;
+Mix_Chunk *collision=NULL;
+Mix_Music *bgMusic=NULL;
 bool Initialize(void);
 void Shutdown(void);
 void Update(float);
@@ -59,12 +61,12 @@ void UpdateScore(int player, int points);
 // void MakeBricks(void);
 void UpdateBricks(void);
 void RestartGame(void);
+void loadAudio(void);
 // void RenderBricks(void);
 SDL_Color textColor = {255, 255, 255};
-    
+
 int main(int argc, char *argv[])
 {
-
     srand((unsigned int)time(NULL));
     atexit(Shutdown);
     if (!Initialize())
@@ -75,20 +77,23 @@ int main(int argc, char *argv[])
     SDL_Event event;
     Uint32 lastTick = SDL_GetTicks();
     call();
+    loadAudio();
+
     while (!quit)
     {
         const Uint8 *kState = SDL_GetKeyboardState(NULL);
         if (kState[SDL_SCANCODE_F])
         {
-            UpdateScore(2,0);
+            UpdateScore(2, 0);
         }
-        
+
         while (SDL_PollEvent(&event))
         {
             if (event.type == SDL_QUIT)
             {
                 quit = true;
             }
+            Mix_PlayMusic(bgMusic,-1);
         }
         Uint32 curTick = SDL_GetTicks();
         Uint32 diff = curTick - lastTick;
@@ -105,12 +110,12 @@ int main(int argc, char *argv[])
 }
 bool Initialize(void)
 {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0)
     {
-        fprintf(stderr, "Failed to initialize SDL:%s\n", SDL_GetError());
+        printf("Failed to initialize SDL:%s\n", SDL_GetError());
         return false;
     }
-     char *pointsTable = "*****************************************Brick Breaker**************************************";
+    char *pointsTable = "*****************************************Brick Breaker**************************************";
     int len = snprintf(NULL, 0, pointsTable);
     char buf[len + 1];
     snprintf(buf, len + 1, pointsTable);
@@ -130,6 +135,11 @@ bool Initialize(void)
     {
         return false;
     }
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0)
+    {
+        printf("Error opening SDL_MIXER Error:%s\n", Mix_GetError());
+    }
+    
     ball = MakeBall(BALL_SIZE);
     player1 = MakePlayers();
     player2 = MakePlayers();
@@ -162,6 +172,8 @@ void Shutdown(void)
     {
         SDL_DestroyWindow(window);
     }
+
+    Mix_Quit();
     TTF_Quit();
     SDL_Quit();
 }
@@ -204,18 +216,18 @@ void UpdateBall(Ball *ball, float elapsed)
         ball->y = HEIGHT - PLAYER_WIDTH - PLAYER_MARGIN;
         player2.xPosition = WIDTH / 2 - PLAYER_HEIGHT / 4 - PLAYER_MARGIN;
         const Uint8 *keyboardState = SDL_GetKeyboardState(NULL);
-    // if (keyboardState[SDL_SCANCODE_RIGHT])
-    // {
-    //     ball->xSpeed=SPEED*SPEED;
-    //     ball->ySpeed=SPEED*SPEED;
-    // }
-    // if (keyboardState[SDL_SCANCODE_LEFT])
-    // {
-    //     ball->xSpeed=-SPEED;
-    //     ball->ySpeed=-SPEED;
-    // }
-    ball->xSpeed=SPEED;
-    ball->ySpeed=SPEED;
+        // if (keyboardState[SDL_SCANCODE_RIGHT])
+        // {
+        //     ball->xSpeed=SPEED*SPEED;
+        //     ball->ySpeed=SPEED*SPEED;
+        // }
+        // if (keyboardState[SDL_SCANCODE_LEFT])
+        // {
+        //     ball->xSpeed=-SPEED;
+        //     ball->ySpeed=-SPEED;
+        // }
+        ball->xSpeed = SPEED;
+        ball->ySpeed = SPEED;
         return;
     }
     ball->x += ball->xSpeed * elapsed;
@@ -265,9 +277,9 @@ void UpdatePlayers(float elapsed)
     {
         player2.xPosition = PLAYER_WIDTH / 2;
     }
-    if (player2.xPosition > WIDTH - PLAYER_HEIGHT/4-PLAYER_MARGIN)
+    if (player2.xPosition > WIDTH - PLAYER_HEIGHT / 4 - PLAYER_MARGIN)
     {
-        player2.xPosition = WIDTH - PLAYER_HEIGHT/4-PLAYER_MARGIN;
+        player2.xPosition = WIDTH - PLAYER_HEIGHT / 4 - PLAYER_MARGIN;
     }
     //check if  ball rect overlaps with either player rect
     SDL_Rect ballRect = {
@@ -300,17 +312,18 @@ void RenderPlayers(void)
 }
 void UpdateScore(int player, int points)
 {
-     
+
     SDL_Surface *textSurface = TTF_RenderText_Solid(gFont, "CONGRATULATIONS! YOU LEVELED UP", textColor);
-    SDL_Texture *mTexture =SDL_CreateTextureFromSurface(renderer,textSurface);
-     gFont=TTF_OpenFont("arial.ttf",18);
+    SDL_Texture *mTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+    TTF_Font *gFont = TTF_OpenFont("arial.ttf", 18);
     SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer,255,0,0,255);
-    SDL_Rect dest={.x=WIDTH/2-(textSurface->w)/2,.y=HEIGHT/2,.w=textSurface->w,.h=textSurface->h};
-    SDL_RenderFillRect(renderer,&dest);
-    SDL_RenderCopy(renderer,mTexture,NULL,&dest);
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+    SDL_Rect dest = {.x = WIDTH / 2 - (textSurface->w) / 2, .y = HEIGHT / 2, .w = textSurface->w, .h = textSurface->h};
+    SDL_RenderFillRect(renderer, &dest);
+    SDL_RenderCopy(renderer, mTexture, NULL, &dest);
     SDL_RenderPresent(renderer);
     SDL_Delay(2000);
+    TTF_CloseFont(gFont);
     SDL_free(textSurface);
     SDL_DestroyTexture(mTexture);
     served = false;
@@ -335,7 +348,6 @@ void UpdateScore(int player, int points)
 
 void UpdateBricks(void)
 {
-
 
     static float sum = 0;
     bool render = false;
@@ -392,6 +404,7 @@ void UpdateBricks(void)
         {
             if (SDL_HasIntersection(&ballRect, &bricks[i]))
             {
+                Mix_PlayChannel(-1,collision,0);
                 count[i]--;
                 if (ball.ySpeed > 0)
                 {
@@ -406,10 +419,10 @@ void UpdateBricks(void)
         }
         while (render)
         {
-            k = i >= 5&&i<10 ?  -255: 0;
-            l=i>=10&&i<15?-255:0;
-            m=i>=10?-255:0;
-            SDL_SetRenderDrawColor(renderer, 255+ k, 255 + l, 255 + m, 255);
+            k = i >= 5 && i < 10 ? -255 : 0;
+            l = i >= 10 && i < 15 ? -255 : 0;
+            m = i >= 10 ? -255 : 0;
+            SDL_SetRenderDrawColor(renderer, 255 + k, 255 + l, 255 + m, 255);
             SDL_RenderFillRect(renderer, &bricks[i]);
             break;
         }
@@ -428,15 +441,15 @@ void UpdateBricks(void)
 
 void RestartGame(void)
 
-{  
-   
- SDL_Surface *textSurface = TTF_RenderText_Solid(gFont, "OOOPS!YOU FAILED", textColor);
-   SDL_Texture *mTexture =SDL_CreateTextureFromSurface(renderer,textSurface);
-     gFont=TTF_OpenFont("arial.ttf",18);
+{
+
+    SDL_Surface *textSurface = TTF_RenderText_Solid(gFont, "OOOPS!YOU FAILED", textColor);
+    SDL_Texture *mTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+    gFont = TTF_OpenFont("arial.ttf", 18);
     SDL_RenderClear(renderer);
-    SDL_Rect dest={.x=WIDTH/2-(textSurface->w)/2,.y=HEIGHT/2,.w=textSurface->w,.h=textSurface->h};
-    SDL_RenderFillRect(renderer,&dest);
-    SDL_RenderCopy(renderer,mTexture,NULL,&dest);
+    SDL_Rect dest = {.x = WIDTH / 2 - (textSurface->w) / 2, .y = HEIGHT / 2, .w = textSurface->w, .h = textSurface->h};
+    SDL_RenderFillRect(renderer, &dest);
+    SDL_RenderCopy(renderer, mTexture, NULL, &dest);
     SDL_RenderPresent(renderer);
     SDL_Delay(2000);
     SDL_free(textSurface);
@@ -458,25 +471,40 @@ void RestartGame(void)
     SDL_SetWindowTitle(window, buf);
 }
 void call(void)
-{ 
-       gFont=TTF_OpenFont("arial.ttf",18);
-    SDL_Surface*textSurface = TTF_RenderText_Solid(gFont, "WELCOME!", textColor);
-     SDL_Texture *mTexture =SDL_CreateTextureFromSurface(renderer,textSurface);
-    SDL_Rect dest={.x=WIDTH/2-(textSurface->w)/2,.y=HEIGHT/2,.w=textSurface->w,.h=textSurface->h};
-    SDL_RenderFillRect(renderer,&dest);
-    SDL_RenderCopy(renderer,mTexture,NULL,&dest);
+{
+    gFont = TTF_OpenFont("arial.ttf", 18);
+    SDL_Surface *textSurface = TTF_RenderText_Solid(gFont, "WELCOME!", textColor);
+    SDL_Texture *mTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+    SDL_Rect dest = {.x = WIDTH / 2 - (textSurface->w) / 2, .y = HEIGHT / 2, .w = textSurface->w, .h = textSurface->h};
+    SDL_RenderFillRect(renderer, &dest);
+    SDL_RenderCopy(renderer, mTexture, NULL, &dest);
     SDL_RenderPresent(renderer);
     SDL_Delay(2000);
     SDL_free(textSurface);
     SDL_DestroyTexture(mTexture);
-    SDL_Surface*Surface = TTF_RenderText_Solid(gFont, "PRESS 'f' to SKIP A LEVEL and SPACE TO BEGIN", textColor);
-     SDL_Texture *Texture =SDL_CreateTextureFromSurface(renderer,Surface);
-    SDL_Rect Ndest={.x=WIDTH/2-(Surface->w)/2,.y=HEIGHT/2,.w=Surface->w,.h=Surface->h};
-    SDL_RenderFillRect(renderer,&Ndest);
-    SDL_RenderCopy(renderer,Texture,NULL,&Ndest);
+    SDL_Surface *Surface = TTF_RenderText_Solid(gFont, "PRESS 'f' to SKIP A LEVEL and SPACE TO BEGIN", textColor);
+    SDL_Texture *Texture = SDL_CreateTextureFromSurface(renderer, Surface);
+    SDL_Rect Ndest = {.x = WIDTH / 2 - (Surface->w) / 2, .y = HEIGHT / 2, .w = Surface->w, .h = Surface->h};
+    SDL_RenderFillRect(renderer, &Ndest);
+    SDL_RenderCopy(renderer, Texture, NULL, &Ndest);
     SDL_RenderPresent(renderer);
     SDL_Delay(3000);
     SDL_free(Surface);
     SDL_DestroyTexture(Texture);
-    
+}
+void loadAudio(void)
+{ 
+    collision=Mix_LoadWAV("1.wav");
+    if (collision==NULL)
+    {
+        printf("failed to open collisioin file\n");
+    }
+    else{
+        printf("Succesfully Opened collision\n");
+    }
+    bgMusic=Mix_LoadMUS("2.wav");
+    if (collision==NULL)
+    {
+        printf("failed to open bgMusic file\n");
+    }
 }
